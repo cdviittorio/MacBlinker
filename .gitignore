@@ -1,0 +1,13 @@
+# Built app bundle
+MacBlinker.app/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Xcode / Swift build artifacts
+*.o
+*.d
+*.swp
+DerivedData/
