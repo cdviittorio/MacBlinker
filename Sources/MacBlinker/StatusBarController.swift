@@ -49,6 +49,7 @@ class StatusBarController {
     @objc private func handleClick() {
         guard let event = NSApp.currentEvent else { return }
         if event.type == .rightMouseUp {
+            buildMenu()   // rebuild so preset checkmarks and BPM labels are fresh
             statusItem.menu = contextMenu
             statusItem.button?.performClick(nil)
             statusItem.menu = nil
@@ -158,8 +159,32 @@ class StatusBarController {
 
     // MARK: - Menu
 
+    /// Rebuilt on every right-click so checkmarks and BPM values are always fresh.
     private func buildMenu() {
         contextMenu = NSMenu()
+
+        // Version badge
+        let versionItem = NSMenuItem(title: "MacBlinker v1.2", action: nil, keyEquivalent: "")
+        versionItem.isEnabled = false
+        contextMenu.addItem(versionItem)
+
+        contextMenu.addItem(.separator())
+
+        // Speed presets — checkmark shows the currently active one
+        for preset in SpeedPreset.allCases {
+            let presetBPM = BlinkerSettings.shared.bpm(for: preset)
+            let item = NSMenuItem(
+                title: "\(preset.label)  —  \(Int(presetBPM)) BPM",
+                action: #selector(applyPresetFromMenu(_:)),
+                keyEquivalent: ""
+            )
+            item.target = self
+            item.representedObject = preset.rawValue
+            item.state = (BlinkerSettings.shared.activePreset == preset) ? .on : .off
+            contextMenu.addItem(item)
+        }
+
+        contextMenu.addItem(.separator())
 
         let pauseItem = NSMenuItem(title: "Pause / Resume", action: #selector(togglePause), keyEquivalent: "p")
         pauseItem.target = self
@@ -174,6 +199,12 @@ class StatusBarController {
         contextMenu.addItem(NSMenuItem(title: "Quit MacBlinker",
                                         action: #selector(NSApplication.terminate(_:)),
                                         keyEquivalent: "q"))
+    }
+
+    @objc private func applyPresetFromMenu(_ sender: NSMenuItem) {
+        guard let raw = sender.representedObject as? String,
+              let preset = SpeedPreset(rawValue: raw) else { return }
+        BlinkerSettings.shared.applyPreset(preset)
     }
 
     // MARK: - Settings change
