@@ -28,6 +28,15 @@ struct PreferencesView: View {
     @State private var normalBPM: Double       = BlinkerSettings.shared.normalBPM
     @State private var rabbitBPM: Double       = BlinkerSettings.shared.rabbitBPM
 
+    /// Returns the matching preset if `bpm` exactly matches one of the configured preset values.
+    /// Uses local @State values so it reacts instantly when presets are edited in this panel.
+    private func activePreset(for bpm: Double) -> SpeedPreset? {
+        if abs(bpm - turtleBPM) < 0.5 { return .turtle }
+        if abs(bpm - normalBPM) < 0.5 { return .normal }
+        if abs(bpm - rabbitBPM) < 0.5 { return .rabbit }
+        return nil
+    }
+
     private func symbol(for shape: BlinkerShape) -> String {
         switch shape {
         case .circle:  return "circle.fill"
@@ -49,8 +58,19 @@ struct PreferencesView: View {
 
             // ── Speed ─────────────────────────────────────────────
             row(label: "Speed") {
-                SpeedControl(speed: $speed, min: 12, max: 300) {
-                    BlinkerSettings.shared.bpm = speed
+                VStack(alignment: .leading, spacing: 4) {
+                    SpeedControl(speed: $speed, min: 12, max: 300) {
+                        BlinkerSettings.shared.bpm = speed
+                    }
+                    // Active preset / custom indicator
+                    HStack(spacing: 4) {
+                        Image(systemName: activePreset(for: speed) != nil ? "checkmark.circle.fill" : "slider.horizontal.3")
+                            .font(.caption)
+                            .foregroundColor(activePreset(for: speed) != nil ? .green : .secondary)
+                        Text(activePreset(for: speed).map { "Preset: \($0.label)  —  \(Int(speed)) BPM" } ?? "Custom speed — \(Int(speed)) BPM")
+                            .font(.caption)
+                            .foregroundColor(activePreset(for: speed) != nil ? .green : .secondary)
+                    }
                 }
             }
 
@@ -87,13 +107,13 @@ struct PreferencesView: View {
                     .font(.subheadline)
                     .foregroundColor(.secondary)
 
-                PresetRow(label: "🐢  Turtle", bpm: $turtleBPM) {
+                PresetRow(label: "🐢  Turtle", bpm: $turtleBPM, currentSpeed: speed) {
                     BlinkerSettings.shared.turtleBPM = turtleBPM
                 }
-                PresetRow(label: "🚶  Normal", bpm: $normalBPM) {
+                PresetRow(label: "🚶  Normal", bpm: $normalBPM, currentSpeed: speed) {
                     BlinkerSettings.shared.normalBPM = normalBPM
                 }
-                PresetRow(label: "🐇  Rabbit", bpm: $rabbitBPM) {
+                PresetRow(label: "🐇  Rabbit", bpm: $rabbitBPM, currentSpeed: speed) {
                     BlinkerSettings.shared.rabbitBPM = rabbitBPM
                 }
             }
@@ -179,47 +199,49 @@ struct SpeedControl: View {
     }
 }
 
-// MARK: - Compact Preset Row
+// MARK: - Preset Row
 
 struct PresetRow: View {
     let label: String
     @Binding var bpm: Double
+    let currentSpeed: Double   // speed currently set in the Speed control
     let onChange: () -> Void
 
-    private let min: Double = 12
-    private let max: Double = 300
+    private var isActive: Bool { abs(bpm - currentSpeed) < 0.5 }
 
     var body: some View {
-        HStack(spacing: 8) {
+        HStack(spacing: 0) {
+            // Preset name
             Text(label)
                 .frame(width: 100, alignment: .leading)
 
-            Button { nudge(-5) } label: {
-                Image(systemName: "minus.circle")
-                    .foregroundColor(bpm > min ? .accentColor : .secondary)
-            }
-            .buttonStyle(.plain)
-            .disabled(bpm <= min)
-
-            Text("\(Int(bpm))")
+            // Stored BPM value
+            Text("\(Int(bpm)) BPM")
                 .monospacedDigit()
-                .frame(width: 34, alignment: .center)
+                .foregroundColor(.secondary)
+                .frame(width: 70, alignment: .leading)
 
-            Button { nudge(+5) } label: {
-                Image(systemName: "plus.circle")
-                    .foregroundColor(bpm < max ? .accentColor : .secondary)
+            Spacer()
+
+            // Update button — stamps current speed into this preset
+            Button {
+                bpm = currentSpeed
+                onChange()
+            } label: {
+                HStack(spacing: 4) {
+                    Image(systemName: isActive ? "checkmark" : "arrow.up.circle")
+                        .font(.system(size: 10, weight: .semibold))
+                    Text(isActive ? "Active" : "Set to \(Int(currentSpeed)) BPM")
+                        .font(.system(size: 11, weight: .medium, design: .rounded))
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 4)
+                .background(isActive ? Color.green.opacity(0.15) : Color.accentColor.opacity(0.12))
+                .foregroundColor(isActive ? .green : .accentColor)
+                .clipShape(Capsule())
             }
             .buttonStyle(.plain)
-            .disabled(bpm >= max)
-
-            Text("BPM")
-                .font(.caption)
-                .foregroundColor(.secondary)
+            .disabled(isActive)
         }
-    }
-
-    private func nudge(_ step: Double) {
-        bpm = Swift.max(min, Swift.min(max, bpm + step))
-        onChange()
     }
 }
