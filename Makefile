@@ -10,20 +10,22 @@ ARCH     = $(shell uname -m)
 TARGET   = $(ARCH)-apple-macos12.0
 SDK      = $(shell xcrun --show-sdk-path --sdk macosx)
 
-APP_BUNDLE   = $(APP).app
-CONTENTS     = $(APP_BUNDLE)/Contents
-MACOS_DIR    = $(CONTENTS)/MacOS
-INSTALL_DIR  = $(HOME)/Applications
+APP_BUNDLE    = $(APP).app
+CONTENTS      = $(APP_BUNDLE)/Contents
+MACOS_DIR     = $(CONTENTS)/MacOS
+RESOURCES_DIR = $(CONTENTS)/Resources
+INSTALL_DIR   = $(HOME)/Applications
 
 .PHONY: build run install uninstall clean
 
 build:
-	mkdir -p $(MACOS_DIR)
+	mkdir -p $(MACOS_DIR) $(RESOURCES_DIR)
 	swiftc $(SOURCES) \
 		-sdk $(SDK) \
 		-target $(TARGET) \
 		-o $(MACOS_DIR)/$(APP)
 	cp Info.plist $(CONTENTS)/Info.plist
+	cp Resources/AppIcon.icns $(RESOURCES_DIR)/AppIcon.icns
 	# Ad-hoc code sign so Gatekeeper accepts the app
 	codesign --force --deep --sign - $(APP_BUNDLE)
 	@echo "Built $(APP_BUNDLE)"
