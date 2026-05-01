@@ -23,21 +23,21 @@ func makeIconImage(size: CGFloat) -> NSImage {
         ctx.addPath(bgPath)
         ctx.clip()
         ctx.setShadow(offset: .zero, blur: size * 0.18,
-                      color: CGColor(red: 1, green: 0.28, blue: 0.28, alpha: 0.55))
-        ctx.setFillColor(CGColor(red: 1, green: 0.28, blue: 0.28, alpha: 0.20))
+                      color: CGColor(red: 0.18, green: 0.85, blue: 0.35, alpha: 0.55))
+        ctx.setFillColor(CGColor(red: 0.18, green: 0.85, blue: 0.35, alpha: 0.20))
         ctx.fillEllipse(in: glowRect)
         ctx.restoreGState()
 
         // ── Main circle ───────────────────────────────────────────
         let circInset = size * 0.22
         let circRect  = rect.insetBy(dx: circInset, dy: circInset)
-        // Gradient fill: bright red-orange at top, deep red at bottom
+        // Gradient fill: bright lime-green at top, deep green at bottom
         let colorSpace = CGColorSpaceCreateDeviceRGB()
         let gradient = CGGradient(
             colorsSpace: colorSpace,
             colors: [
-                CGColor(red: 1.00, green: 0.45, blue: 0.35, alpha: 1),  // top highlight
-                CGColor(red: 0.90, green: 0.15, blue: 0.15, alpha: 1),  // bottom deep red
+                CGColor(red: 0.45, green: 1.00, blue: 0.45, alpha: 1),  // top highlight
+                CGColor(red: 0.10, green: 0.72, blue: 0.25, alpha: 1),  // bottom deep green
             ] as CFArray,
             locations: [0, 1]
         )!
@@ -63,7 +63,7 @@ func makeIconImage(size: CGFloat) -> NSImage {
         ctx.saveGState()
         ctx.addEllipse(in: circRect)  // clip to circle boundary
         ctx.clip()
-        ctx.setFillColor(CGColor(red: 1, green: 0.85, blue: 0.85, alpha: 0.35))
+        ctx.setFillColor(CGColor(red: 0.85, green: 1, blue: 0.85, alpha: 0.35))
         ctx.fillEllipse(in: hlRect)
         ctx.restoreGState()
 
