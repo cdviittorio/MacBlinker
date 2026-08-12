@@ -3,7 +3,9 @@ SRC_DIR  = Sources/MacBlinker
 SOURCES  = $(SRC_DIR)/main.swift \
            $(SRC_DIR)/AppDelegate.swift \
            $(SRC_DIR)/BlinkerSettings.swift \
+           $(SRC_DIR)/BlinkerRenderer.swift \
            $(SRC_DIR)/StatusBarController.swift \
+           $(SRC_DIR)/FloatingOverlayController.swift \
            $(SRC_DIR)/PreferencesWindowController.swift
 
 ARCH     = $(shell uname -m)
@@ -26,6 +28,8 @@ build:
 		-o $(MACOS_DIR)/$(APP)
 	cp Info.plist $(CONTENTS)/Info.plist
 	cp Resources/AppIcon.icns $(RESOURCES_DIR)/AppIcon.icns
+	# Strip Finder metadata (.DS_Store/xattrs) that trips up codesign
+	xattr -crs $(APP_BUNDLE)
 	# Ad-hoc code sign so Gatekeeper accepts the app
 	codesign --force --deep --sign - $(APP_BUNDLE)
 	@echo "Built $(APP_BUNDLE)"

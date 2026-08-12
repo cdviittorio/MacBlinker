@@ -54,6 +54,9 @@ class BlinkerSettings {
         static let presetTurtle = "presetTurtle"
         static let presetNormal = "presetNormal"
         static let presetRabbit = "presetRabbit"
+        static let floatOverFullscreen = "floatOverFullscreen"
+        static let overlayOriginX      = "overlayOriginX"
+        static let overlayOriginY      = "overlayOriginY"
     }
 
     // MARK: Color
@@ -132,6 +135,31 @@ class BlinkerSettings {
     var isFade: Bool {
         get { defaults.object(forKey: Key.isFade) as? Bool ?? false }
         set { defaults.set(newValue, forKey: Key.isFade); notify() }
+    }
+
+    // MARK: - Floating overlay (shows the blinker over full-screen apps)
+
+    /// When true, a small floating dot is kept on top of everything —
+    /// including apps running full-screen in their own Space (e.g. Teams) —
+    /// in addition to the status-bar icon.
+    var floatOverFullscreen: Bool {
+        get { defaults.object(forKey: Key.floatOverFullscreen) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Key.floatOverFullscreen); notify() }
+    }
+
+    /// Last dragged position of the floating overlay, so it reopens where you left it.
+    var overlayOrigin: NSPoint? {
+        get {
+            guard let x = defaults.object(forKey: Key.overlayOriginX) as? Double,
+                  let y = defaults.object(forKey: Key.overlayOriginY) as? Double else { return nil }
+            return NSPoint(x: x, y: y)
+        }
+        set {
+            guard let point = newValue else { return }
+            defaults.set(Double(point.x), forKey: Key.overlayOriginX)
+            defaults.set(Double(point.y), forKey: Key.overlayOriginY)
+            // Position changes don't need a full settings-changed broadcast/timer restart.
+        }
     }
 
     private func notify() {

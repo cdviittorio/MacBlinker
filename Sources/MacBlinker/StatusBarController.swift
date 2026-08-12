@@ -14,6 +14,7 @@ class StatusBarController {
 
     private var isPaused = false
     private var prefsWindowController: PreferencesWindowController?
+    private let floatingOverlay = FloatingOverlayController()
 
     private let circleSize: CGFloat = 16
     // 30 fps for fade; blink uses a slower interval derived from BPM
@@ -27,6 +28,7 @@ class StatusBarController {
         setupButton()
         refreshIcon()
         startTimer()
+        syncFloatingOverlay()
 
         NotificationCenter.default.addObserver(
             self,
@@ -107,6 +109,7 @@ class StatusBarController {
     private func refreshIcon() {
         guard let button = statusItem.button else { return }
         button.image = makeStatusImage()
+        floatingOverlay.update(alpha: currentAlpha, isPaused: isPaused)
     }
 
     private func makeStatusImage() -> NSImage {
@@ -121,40 +124,7 @@ class StatusBarController {
     }
 
     private func shapePath(in rect: NSRect) -> NSBezierPath {
-        switch BlinkerSettings.shared.shape {
-        case .circle:
-            return NSBezierPath(ovalIn: rect)
-
-        case .square:
-            return NSBezierPath(roundedRect: rect, xRadius: 1.5, yRadius: 1.5)
-
-        case .diamond:
-            let path = NSBezierPath()
-            path.move(to:  NSPoint(x: rect.midX,  y: rect.maxY))
-            path.line(to:  NSPoint(x: rect.maxX,  y: rect.midY))
-            path.line(to:  NSPoint(x: rect.midX,  y: rect.minY))
-            path.line(to:  NSPoint(x: rect.minX,  y: rect.midY))
-            path.close()
-            return path
-
-        case .arrow:
-            // Right-pointing arrow: rectangular shaft + triangular head
-            let shaftH   = rect.height * 0.38
-            let shaftTop = rect.midY + shaftH / 2
-            let shaftBot = rect.midY - shaftH / 2
-            let neckX    = rect.minX + rect.width * 0.55  // where shaft meets head
-
-            let path = NSBezierPath()
-            path.move(to:  NSPoint(x: rect.minX, y: shaftTop))   // shaft TL
-            path.line(to:  NSPoint(x: neckX,     y: shaftTop))   // shaft TR / neck top
-            path.line(to:  NSPoint(x: neckX,     y: rect.maxY))  // head top wing
-            path.line(to:  NSPoint(x: rect.maxX, y: rect.midY))  // tip
-            path.line(to:  NSPoint(x: neckX,     y: rect.minY))  // head bottom wing
-            path.line(to:  NSPoint(x: neckX,     y: shaftBot))   // shaft BR / neck bottom
-            path.line(to:  NSPoint(x: rect.minX, y: shaftBot))   // shaft BL
-            path.close()
-            return path
-        }
+        BlinkerRenderer.shapePath(for: BlinkerSettings.shared.shape, in: rect)
     }
 
     // MARK: - Menu
@@ -164,7 +134,7 @@ class StatusBarController {
         contextMenu = NSMenu()
 
         // Version badge
-        let versionItem = NSMenuItem(title: "MacBlinker v1.2", action: nil, keyEquivalent: "")
+        let versionItem = NSMenuItem(title: "MacBlinker v1.3", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         contextMenu.addItem(versionItem)
 
@@ -194,6 +164,15 @@ class StatusBarController {
         prefsItem.target = self
         contextMenu.addItem(prefsItem)
 
+        let floatItem = NSMenuItem(
+            title: "Float Over Full-Screen Apps",
+            action: #selector(toggleFloatOverFullscreen),
+            keyEquivalent: "f"
+        )
+        floatItem.target = self
+        floatItem.state = BlinkerSettings.shared.floatOverFullscreen ? .on : .off
+        contextMenu.addItem(floatItem)
+
         contextMenu.addItem(.separator())
 
         contextMenu.addItem(NSMenuItem(title: "Quit MacBlinker",
@@ -207,9 +186,25 @@ class StatusBarController {
         BlinkerSettings.shared.applyPreset(preset)
     }
 
+    // MARK: - Floating overlay
+
+    @objc private func toggleFloatOverFullscreen() {
+        BlinkerSettings.shared.floatOverFullscreen.toggle()
+    }
+
+    private func syncFloatingOverlay() {
+        if BlinkerSettings.shared.floatOverFullscreen {
+            floatingOverlay.show()
+            refreshIcon() // push current alpha/color immediately so it isn't blank
+        } else {
+            floatingOverlay.hide()
+        }
+    }
+
     // MARK: - Settings change
 
     @objc private func onSettingsChanged() {
+        syncFloatingOverlay()
         guard !isPaused else { refreshIcon(); return }
         startTimer()
         refreshIcon()
