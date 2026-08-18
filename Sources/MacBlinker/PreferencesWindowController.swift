@@ -4,7 +4,7 @@ import SwiftUI
 class PreferencesWindowController: NSWindowController {
     convenience init() {
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 340, height: 460),
+            contentRect: NSRect(x: 0, y: 0, width: 340, height: 560),
             styleMask: [.titled, .closable],
             backing: .buffered,
             defer: false
@@ -27,6 +27,7 @@ struct PreferencesView: View {
     @State private var turtleBPM: Double       = BlinkerSettings.shared.turtleBPM
     @State private var normalBPM: Double       = BlinkerSettings.shared.normalBPM
     @State private var rabbitBPM: Double       = BlinkerSettings.shared.rabbitBPM
+    @State private var targetWPM: Double       = BlinkerSettings.shared.targetWPM
 
     /// Returns the matching preset if `bpm` exactly matches one of the configured preset values.
     /// Uses local @State values so it reacts instantly when presets are edited in this panel.
@@ -118,10 +119,39 @@ struct PreferencesView: View {
                 }
             }
 
+            Divider()
+
+            // ── Coaching Mode ─────────────────────────────────────
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Coaching Mode — Target Speed")
+                    .font(.subheadline)
+                    .foregroundColor(.secondary)
+
+                HStack(alignment: .center, spacing: 16) {
+                    SpeedControl(speed: $targetWPM, min: 60, max: 220, unit: "WPM") {
+                        BlinkerSettings.shared.targetWPM = targetWPM
+                    }
+                    VStack(alignment: .leading, spacing: 3) {
+                        legendDot(.green, "±10% — on pace")
+                        legendDot(.yellow, "10–25% — caution")
+                        legendDot(.red, "25%+ — off pace")
+                    }
+                    .font(.caption2)
+                }
+            }
+
             Spacer()
         }
         .padding(24)
-        .frame(width: 340, height: 460)
+        .frame(width: 340, height: 560)
+    }
+
+    @ViewBuilder
+    private func legendDot(_ color: Color, _ text: String) -> some View {
+        HStack(spacing: 5) {
+            Circle().fill(color).frame(width: 8, height: 8)
+            Text(text).foregroundColor(.secondary)
+        }
     }
 
     @ViewBuilder
@@ -139,6 +169,7 @@ struct SpeedControl: View {
     @Binding var speed: Double
     let min: Double
     let max: Double
+    var unit: String = "BPM"
     let onChange: () -> Void
 
     var body: some View {
@@ -150,7 +181,7 @@ struct SpeedControl: View {
                         .font(.system(size: 30, weight: .bold, design: .rounded))
                         .monospacedDigit()
                         .frame(minWidth: 64, alignment: .center)
-                    Text("BPM")
+                    Text(unit)
                         .font(.caption)
                         .foregroundColor(.secondary)
                 }

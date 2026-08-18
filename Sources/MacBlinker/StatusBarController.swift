@@ -16,11 +16,27 @@ class StatusBarController {
     private var prefsWindowController: PreferencesWindowController?
     private let floatingOverlay = FloatingOverlayController()
 
+    // MARK: Coaching Mode state
+    private let speechMonitor = SpeechRateMonitor()
+    private let coachingHUD = CoachingHUDController()
+    private var coachingColorOverride: NSColor?
+    private var coachingBlinkTimer: Timer?
+    private var currentBand: WPMBand?
+    private var lastKnownWPM: Double?
+    private var coachingDiagnostic: String?
+
     private let circleSize: CGFloat = 16
     // 30 fps for fade; blink uses a slower interval derived from BPM
     private let fadeFPS: TimeInterval = 1.0 / 30.0
 
     init() {
+        // Coaching Mode always starts off at launch — we never want to fire a
+        // mic-permission prompt or start listening without a fresh, explicit
+        // toggle from the user in this session.
+        if BlinkerSettings.shared.coachingModeEnabled {
+            BlinkerSettings.shared.coachingModeEnabled = false
+        }
+
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         statusItem.autosaveName = "MacBlinker"
         statusItem.behavior = .removalAllowed
@@ -67,7 +83,13 @@ class StatusBarController {
         if isPaused {
             timer?.invalidate()
             timer = nil
+            coachingBlinkTimer?.invalidate()
+            coachingBlinkTimer = nil
             currentAlpha = 0.3
+        } else if BlinkerSettings.shared.coachingModeEnabled {
+            // The mic/speech monitor kept running in the background; the next
+            // onRateUpdate tick will re-drive the coaching blink/color.
+            currentAlpha = 1.0
         } else {
             startTimer()
         }
@@ -109,13 +131,14 @@ class StatusBarController {
     private func refreshIcon() {
         guard let button = statusItem.button else { return }
         button.image = makeStatusImage()
-        floatingOverlay.update(alpha: currentAlpha, isPaused: isPaused)
+        floatingOverlay.update(alpha: currentAlpha, isPaused: isPaused, colorOverride: coachingColorOverride)
     }
 
     private func makeStatusImage() -> NSImage {
         let image = NSImage(size: NSSize(width: circleSize, height: circleSize), flipped: false) { rect in
             let alpha = self.isPaused ? 0.3 : self.currentAlpha
-            BlinkerSettings.shared.color.withAlphaComponent(alpha).setFill()
+            let color = self.coachingColorOverride ?? BlinkerSettings.shared.color
+            color.withAlphaComponent(alpha).setFill()
             self.shapePath(in: rect.insetBy(dx: 2, dy: 2)).fill()
             return true
         }
@@ -134,7 +157,7 @@ class StatusBarController {
         contextMenu = NSMenu()
 
         // Version badge
-        let versionItem = NSMenuItem(title: "MacBlinker v1.3", action: nil, keyEquivalent: "")
+        let versionItem = NSMenuItem(title: "MacBlinker v2.0", action: nil, keyEquivalent: "")
         versionItem.isEnabled = false
         contextMenu.addItem(versionItem)
 
@@ -175,6 +198,32 @@ class StatusBarController {
 
         contextMenu.addItem(.separator())
 
+        // Coaching Mode — live words-per-minute pacing
+        let coachingItem = NSMenuItem(
+            title: "Coaching Mode  —  target \(Int(BlinkerSettings.shared.targetWPM)) WPM",
+            action: #selector(toggleCoachingMode),
+            keyEquivalent: "c"
+        )
+        coachingItem.target = self
+        coachingItem.state = BlinkerSettings.shared.coachingModeEnabled ? .on : .off
+        contextMenu.addItem(coachingItem)
+
+        if BlinkerSettings.shared.coachingModeEnabled {
+            let readout: String
+            if let diagnostic = coachingDiagnostic {
+                readout = "   ⚠️ \(diagnostic)"
+            } else if let wpm = lastKnownWPM {
+                readout = "   Live: \(Int(wpm)) WPM"
+            } else {
+                readout = "   Listening… warming up"
+            }
+            let readoutItem = NSMenuItem(title: readout, action: nil, keyEquivalent: "")
+            readoutItem.isEnabled = false
+            contextMenu.addItem(readoutItem)
+        }
+
+        contextMenu.addItem(.separator())
+
         contextMenu.addItem(NSMenuItem(title: "Quit MacBlinker",
                                         action: #selector(NSApplication.terminate(_:)),
                                         keyEquivalent: "q"))
@@ -201,11 +250,131 @@ class StatusBarController {
         }
     }
 
+    // MARK: - Coaching Mode
+
+    @objc private func toggleCoachingMode() {
+        if BlinkerSettings.shared.coachingModeEnabled {
+            BlinkerSettings.shared.coachingModeEnabled = false
+            return
+        }
+
+        speechMonitor.requestPermissions { [weak self] granted in
+            guard let self else { return }
+            if granted {
+                BlinkerSettings.shared.coachingModeEnabled = true
+            } else {
+                self.showMicPermissionDeniedAlert()
+            }
+        }
+    }
+
+    private func showMicPermissionDeniedAlert() {
+        let alert = NSAlert()
+        alert.messageText = "Microphone / Speech Access Needed"
+        alert.informativeText = "Coaching Mode needs microphone and speech-recognition access to measure your speaking pace. Enable both for MacBlinker in System Settings → Privacy & Security, then try again."
+        alert.addButton(withTitle: "OK")
+        NSApp.activate(ignoringOtherApps: true)
+        alert.runModal()
+    }
+
+    private func syncCoachingMode() {
+        if BlinkerSettings.shared.coachingModeEnabled {
+            guard !speechMonitor.isRunning else { return }
+            timer?.invalidate()
+            timer = nil
+            currentBand = nil
+            lastKnownWPM = nil
+            coachingDiagnostic = nil
+            speechMonitor.onRateUpdate = { [weak self] wpm, words in
+                self?.applyCoaching(wpm: wpm, words: words)
+            }
+            speechMonitor.onStatus = { [weak self] message in
+                self?.coachingDiagnostic = message
+            }
+            speechMonitor.start()
+            coachingHUD.show()
+        } else {
+            guard speechMonitor.isRunning else { return }
+            speechMonitor.stop()
+            coachingBlinkTimer?.invalidate()
+            coachingBlinkTimer = nil
+            coachingColorOverride = nil
+            currentBand = nil
+            lastKnownWPM = nil
+            coachingDiagnostic = nil
+            coachingHUD.hide()
+        }
+    }
+
+    /// Driven by SpeechRateMonitor roughly every 0.5s while Coaching Mode is on.
+    private func applyCoaching(wpm: Double?, words: Int) {
+        lastKnownWPM = wpm
+        defer { coachingHUD.update(words: words, wpm: wpm, color: coachingColorOverride ?? .systemGray) }
+        if let diagnostic = coachingDiagnostic {
+            statusItem.button?.toolTip = "Coaching Mode — \(diagnostic)"
+        } else {
+            statusItem.button?.toolTip = wpm != nil
+                ? "Coaching Mode — \(Int(wpm!)) WPM (target \(Int(BlinkerSettings.shared.targetWPM)))"
+                : "Coaching Mode — listening…"
+        }
+
+        guard !isPaused else { return }
+
+        guard let wpm else {
+            // Still warming up — show a neutral, non-alarming solid color.
+            if currentBand != nil {
+                coachingBlinkTimer?.invalidate()
+                coachingBlinkTimer = nil
+                currentBand = nil
+            }
+            coachingColorOverride = NSColor.systemGray
+            currentAlpha = 1.0
+            refreshIcon()
+            return
+        }
+
+        let band = BlinkerSettings.shared.wpmBand(for: wpm)
+        coachingColorOverride = band.color
+
+        guard band != currentBand else {
+            refreshIcon() // color already correct for this band; just repaint
+            return
+        }
+        currentBand = band
+
+        switch band {
+        case .onPace:
+            coachingBlinkTimer?.invalidate()
+            coachingBlinkTimer = nil
+            currentAlpha = 1.0
+            refreshIcon()
+        case .caution:
+            startCoachingBlink(bpm: 80)
+        case .offPace:
+            startCoachingBlink(bpm: 160)
+        }
+    }
+
+    private func startCoachingBlink(bpm: Double) {
+        coachingBlinkTimer?.invalidate()
+        blinkOn = true
+        currentAlpha = 1.0
+        let interval = 30.0 / bpm
+        coachingBlinkTimer = Timer.scheduledTimer(withTimeInterval: interval, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.blinkOn.toggle()
+            self.currentAlpha = self.blinkOn ? 1.0 : 0.0
+            self.refreshIcon()
+        }
+    }
+
     // MARK: - Settings change
 
     @objc private func onSettingsChanged() {
         syncFloatingOverlay()
+        syncCoachingMode()
         guard !isPaused else { refreshIcon(); return }
+        guard !BlinkerSettings.shared.coachingModeEnabled else { refreshIcon(); return }
         startTimer()
         refreshIcon()
     }

@@ -53,8 +53,11 @@ final class FloatingOverlayController {
     }
 
     /// Called from the same timer/refresh path that drives the status-bar icon,
-    /// so both indicators stay perfectly in sync.
-    func update(alpha: CGFloat, isPaused: Bool) {
+    /// so both indicators stay perfectly in sync. `colorOverride` is used by
+    /// Coaching Mode to paint the on-pace/caution/off-pace color instead of
+    /// the user's configured color.
+    func update(alpha: CGFloat, isPaused: Bool, colorOverride: NSColor? = nil) {
+        overlayView?.colorOverride = colorOverride
         overlayView?.blinkAlpha = isPaused ? 0.3 : alpha
     }
 
@@ -78,10 +81,14 @@ private final class FloatingOverlayView: NSView {
     var blinkAlpha: CGFloat = 1.0 {
         didSet { needsDisplay = true }
     }
+    var colorOverride: NSColor? {
+        didSet { needsDisplay = true }
+    }
 
     override func draw(_ dirtyRect: NSRect) {
         let rect = bounds.insetBy(dx: 2, dy: 2)
-        BlinkerSettings.shared.color.withAlphaComponent(blinkAlpha).setFill()
+        let color = colorOverride ?? BlinkerSettings.shared.color
+        color.withAlphaComponent(blinkAlpha).setFill()
         BlinkerRenderer.shapePath(for: BlinkerSettings.shared.shape, in: rect).fill()
     }
 
