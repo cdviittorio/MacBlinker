@@ -42,6 +42,9 @@ install: build
 	mkdir -p $(INSTALL_DIR)
 	# Kill any running instance first
 	-pkill $(APP) 2>/dev/null; sleep 0.5
+	# Remove any existing bundle first — cp -r into an existing dir nests
+	# the new bundle inside the old one instead of replacing it.
+	rm -rf $(INSTALL_DIR)/$(APP_BUNDLE)
 	cp -r $(APP_BUNDLE) $(INSTALL_DIR)/$(APP_BUNDLE)
 	@echo "Done — MacBlinker is now in ~/Applications."
 	@echo "To launch at login: System Settings → General → Login Items → add MacBlinker."
