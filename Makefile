@@ -6,6 +6,7 @@ SOURCES  = $(SRC_DIR)/main.swift \
            $(SRC_DIR)/BlinkerRenderer.swift \
            $(SRC_DIR)/StatusBarController.swift \
            $(SRC_DIR)/FloatingOverlayController.swift \
+           $(SRC_DIR)/SpeechRateMonitor.swift \
            $(SRC_DIR)/PreferencesWindowController.swift
 
 ARCH     = $(shell uname -m)
@@ -25,6 +26,8 @@ build:
 	swiftc $(SOURCES) \
 		-sdk $(SDK) \
 		-target $(TARGET) \
+		-framework AVFoundation \
+		-framework Speech \
 		-o $(MACOS_DIR)/$(APP)
 	cp Info.plist $(CONTENTS)/Info.plist
 	cp Resources/AppIcon.icns $(RESOURCES_DIR)/AppIcon.icns

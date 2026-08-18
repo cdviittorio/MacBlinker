@@ -57,6 +57,8 @@ class BlinkerSettings {
         static let floatOverFullscreen = "floatOverFullscreen"
         static let overlayOriginX      = "overlayOriginX"
         static let overlayOriginY      = "overlayOriginY"
+        static let targetWPM           = "coachingTargetWPM"
+        static let coachingEnabled     = "coachingModeEnabled"
     }
 
     // MARK: Color
@@ -162,7 +164,48 @@ class BlinkerSettings {
         }
     }
 
+    // MARK: - Coaching Mode (live words-per-minute pacing)
+
+    /// Reference speaking pace, in words per minute.
+    var targetWPM: Double {
+        get { defaults.object(forKey: Key.targetWPM) as? Double ?? 120.0 }
+        set { defaults.set(newValue, forKey: Key.targetWPM); notify() }
+    }
+
+    /// When true, the mic listens continuously and the icon color/blink
+    /// reflects how close your live speaking pace is to targetWPM, instead
+    /// of the normal fixed-color BPM blink.
+    var coachingModeEnabled: Bool {
+        get { defaults.object(forKey: Key.coachingEnabled) as? Bool ?? false }
+        set { defaults.set(newValue, forKey: Key.coachingEnabled); notify() }
+    }
+
+    /// Classifies a live WPM reading against `targetWPM`, direction-agnostic:
+    /// within 10% is on pace, 10–25% is a caution zone, beyond 25% is off pace.
+    func wpmBand(for currentWPM: Double) -> WPMBand {
+        guard targetWPM > 0 else { return .onPace }
+        let deviation = abs(currentWPM - targetWPM) / targetWPM
+        if deviation <= 0.10 { return .onPace }
+        if deviation <= 0.25 { return .caution }
+        return .offPace
+    }
+
     private func notify() {
         NotificationCenter.default.post(name: .settingsChanged, object: nil)
+    }
+}
+
+/// How far the live speaking pace is from the target, regardless of direction.
+enum WPMBand: Equatable {
+    case onPace   // within 10%  → solid green
+    case caution  // 10–25% off  → blinking yellow
+    case offPace  // >25% off    → blinking red (faster)
+
+    var color: NSColor {
+        switch self {
+        case .onPace:  return NSColor(red: 0.20, green: 0.80, blue: 0.20, alpha: 1.0)
+        case .caution: return NSColor(red: 0.95, green: 0.80, blue: 0.10, alpha: 1.0)
+        case .offPace: return NSColor(red: 0.90, green: 0.15, blue: 0.15, alpha: 1.0)
+        }
     }
 }
