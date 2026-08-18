@@ -22,6 +22,7 @@ class StatusBarController {
     private var coachingBlinkTimer: Timer?
     private var currentBand: WPMBand?
     private var lastKnownWPM: Double?
+    private var coachingDiagnostic: String?
 
     private let circleSize: CGFloat = 16
     // 30 fps for fade; blink uses a slower interval derived from BPM
@@ -208,7 +209,9 @@ class StatusBarController {
 
         if BlinkerSettings.shared.coachingModeEnabled {
             let readout: String
-            if let wpm = lastKnownWPM {
+            if let diagnostic = coachingDiagnostic {
+                readout = "   ⚠️ \(diagnostic)"
+            } else if let wpm = lastKnownWPM {
                 readout = "   Live: \(Int(wpm)) WPM"
             } else {
                 readout = "   Listening… warming up"
@@ -280,8 +283,12 @@ class StatusBarController {
             timer = nil
             currentBand = nil
             lastKnownWPM = nil
+            coachingDiagnostic = nil
             speechMonitor.onRateUpdate = { [weak self] wpm in
                 self?.applyCoaching(wpm: wpm)
+            }
+            speechMonitor.onStatus = { [weak self] message in
+                self?.coachingDiagnostic = message
             }
             speechMonitor.start()
         } else {
@@ -292,15 +299,20 @@ class StatusBarController {
             coachingColorOverride = nil
             currentBand = nil
             lastKnownWPM = nil
+            coachingDiagnostic = nil
         }
     }
 
     /// Driven by SpeechRateMonitor roughly every 0.5s while Coaching Mode is on.
     private func applyCoaching(wpm: Double?) {
         lastKnownWPM = wpm
-        statusItem.button?.toolTip = wpm != nil
-            ? "Coaching Mode — \(Int(wpm!)) WPM (target \(Int(BlinkerSettings.shared.targetWPM)))"
-            : "Coaching Mode — listening…"
+        if let diagnostic = coachingDiagnostic {
+            statusItem.button?.toolTip = "Coaching Mode — \(diagnostic)"
+        } else {
+            statusItem.button?.toolTip = wpm != nil
+                ? "Coaching Mode — \(Int(wpm!)) WPM (target \(Int(BlinkerSettings.shared.targetWPM)))"
+                : "Coaching Mode — listening…"
+        }
 
         guard !isPaused else { return }
 

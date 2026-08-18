@@ -36,7 +36,14 @@ final class SpeechRateMonitor {
     /// still warming up / no usable signal yet.
     var onRateUpdate: ((Double?) -> Void)?
 
+    /// Called on the main thread with a human-readable problem description
+    /// whenever recognition fails, or `nil` once it's healthy again. Lets the
+    /// UI surface *why* WPM is stuck at 0 instead of showing a silent blank.
+    var onStatus: ((String?) -> Void)?
+
     private(set) var isRunning = false
+    private var consecutiveFailures = 0
+    private let maxImmediateFailures = 3
 
     /// Requests speech-recognition authorization, then microphone access.
     /// Completion is always called on the main thread.
@@ -57,6 +64,7 @@ final class SpeechRateMonitor {
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             print("MacBlinker: speech recognizer unavailable")
             onRateUpdate?(nil)
+            onStatus?("Speech recognizer unavailable for this language/device.")
             return
         }
 
@@ -65,6 +73,7 @@ final class SpeechRateMonitor {
             lastSegmentCount = 0
         }
         monitorStart = Date()
+        consecutiveFailures = 0
 
         let inputNode = audioEngine.inputNode
         let recordingFormat = inputNode.outputFormat(forBus: 0)
@@ -79,6 +88,7 @@ final class SpeechRateMonitor {
         } catch {
             print("MacBlinker: failed to start audio engine — \(error)")
             inputNode.removeTap(onBus: 0)
+            onStatus?("Couldn't start the audio engine: \(error.localizedDescription)")
             return
         }
 
@@ -127,9 +137,19 @@ final class SpeechRateMonitor {
         recognitionRequest = request
         stateQueue.sync { lastSegmentCount = 0 }
 
-        recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, _ in
-            guard let self, let result else { return }
-            self.ingest(segments: result.bestTranscription.segments)
+        recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
+            guard let self else { return }
+            if let result {
+                self.ingest(segments: result.bestTranscription.segments)
+            }
+            if let error {
+                self.handleRecognitionError(error)
+            } else if result?.isFinal == true {
+                // Recognizer ended the task cleanly (e.g. a silence timeout).
+                // Restart promptly so we keep listening instead of going dark
+                // until the next scheduled recycle.
+                self.scheduleTaskRestart(afterFailure: false)
+            }
         }
     }
 
@@ -143,6 +163,46 @@ final class SpeechRateMonitor {
             let newCount = segments.count - self.lastSegmentCount
             self.wordTimestamps.append(contentsOf: Array(repeating: now, count: newCount))
             self.lastSegmentCount = segments.count
+            DispatchQueue.main.async {
+                self.consecutiveFailures = 0
+                self.onStatus?(nil)
+            }
+        }
+    }
+
+    /// Recognition tasks fail for lots of mundane reasons (silence timeout,
+    /// the ~1min task lifetime, transient network hiccups for the
+    /// non-on-device path). We log the real error and restart automatically —
+    /// but back off if it's failing immediately over and over, which usually
+    /// means something structural (e.g. Dictation disabled system-wide, or no
+    /// on-device model downloaded for this language) rather than a blip.
+    private func handleRecognitionError(_ error: Error) {
+        let nsError = error as NSError
+        let message = "MacBlinker: speech recognition error — domain=\(nsError.domain) code=\(nsError.code) — \(nsError.localizedDescription)"
+        print(message)
+
+        consecutiveFailures += 1
+        let hint: String
+        if consecutiveFailures > maxImmediateFailures {
+            hint = "Mic error (\(nsError.domain) #\(nsError.code)): \(nsError.localizedDescription). " +
+                   "Check System Settings → Keyboard → Dictation is ON, and MacBlinker is allowed under Privacy & Security → Microphone/Speech Recognition."
+        } else {
+            hint = "Mic error (\(nsError.domain) #\(nsError.code)): \(nsError.localizedDescription)"
+        }
+        DispatchQueue.main.async { [weak self] in
+            self?.onStatus?(hint)
+        }
+        scheduleTaskRestart(afterFailure: true)
+    }
+
+    private func scheduleTaskRestart(afterFailure: Bool) {
+        guard isRunning else { return }
+        // Simple back-off: retry quickly at first, slow down if it keeps
+        // failing immediately so we don't spin a tight restart loop.
+        let delay: TimeInterval = (afterFailure && consecutiveFailures > maxImmediateFailures) ? 5.0 : 1.0
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, self.isRunning else { return }
+            self.beginRecognitionTask()
         }
     }
 
