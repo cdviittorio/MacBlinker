@@ -59,6 +59,8 @@ class BlinkerSettings {
         static let overlayOriginY      = "overlayOriginY"
         static let targetWPM           = "coachingTargetWPM"
         static let coachingEnabled     = "coachingModeEnabled"
+        static let coachingHUDOriginX  = "coachingHUDOriginX"
+        static let coachingHUDOriginY  = "coachingHUDOriginY"
     }
 
     // MARK: Color
@@ -178,6 +180,20 @@ class BlinkerSettings {
     var coachingModeEnabled: Bool {
         get { defaults.object(forKey: Key.coachingEnabled) as? Bool ?? false }
         set { defaults.set(newValue, forKey: Key.coachingEnabled); notify() }
+    }
+
+    /// Last dragged position of the coaching HUD, so it reopens where you left it.
+    var coachingHUDOrigin: NSPoint? {
+        get {
+            guard let x = defaults.object(forKey: Key.coachingHUDOriginX) as? Double,
+                  let y = defaults.object(forKey: Key.coachingHUDOriginY) as? Double else { return nil }
+            return NSPoint(x: x, y: y)
+        }
+        set {
+            guard let point = newValue else { return }
+            defaults.set(Double(point.x), forKey: Key.coachingHUDOriginX)
+            defaults.set(Double(point.y), forKey: Key.coachingHUDOriginY)
+        }
     }
 
     /// Classifies a live WPM reading against `targetWPM`, direction-agnostic:

@@ -30,11 +30,12 @@ final class SpeechRateMonitor {
     // thread calc timer, so all access is funneled through this serial queue.
     private let stateQueue = DispatchQueue(label: "com.macblinker.speechmonitor.state")
     private var wordTimestamps: [TimeInterval] = []
-    private var lastSegmentCount = 0
+    private var lastWordCount = 0
 
-    /// Called on the main thread with the current live WPM, or `nil` while
-    /// still warming up / no usable signal yet.
-    var onRateUpdate: ((Double?) -> Void)?
+    /// Called on the main thread with the current live WPM (or `nil` while
+    /// still warming up / no usable signal yet), plus the raw word count
+    /// currently inside the rolling window.
+    var onRateUpdate: ((Double?, Int) -> Void)?
 
     /// Called on the main thread with a human-readable problem description
     /// whenever recognition fails, or `nil` once it's healthy again. Lets the
@@ -63,14 +64,14 @@ final class SpeechRateMonitor {
         guard !isRunning else { return }
         guard let recognizer = speechRecognizer, recognizer.isAvailable else {
             print("MacBlinker: speech recognizer unavailable")
-            onRateUpdate?(nil)
+            onRateUpdate?(nil, 0)
             onStatus?("Speech recognizer unavailable for this language/device.")
             return
         }
 
         stateQueue.sync {
             wordTimestamps.removeAll()
-            lastSegmentCount = 0
+            lastWordCount = 0
         }
         monitorStart = Date()
         consecutiveFailures = 0
@@ -118,7 +119,7 @@ final class SpeechRateMonitor {
 
         stateQueue.sync {
             wordTimestamps.removeAll()
-            lastSegmentCount = 0
+            lastWordCount = 0
         }
         monitorStart = nil
     }
@@ -135,12 +136,12 @@ final class SpeechRateMonitor {
             request.requiresOnDeviceRecognition = true
         }
         recognitionRequest = request
-        stateQueue.sync { lastSegmentCount = 0 }
+        stateQueue.sync { lastWordCount = 0 }
 
         recognitionTask = speechRecognizer?.recognitionTask(with: request) { [weak self] result, error in
             guard let self else { return }
             if let result {
-                self.ingest(segments: result.bestTranscription.segments)
+                self.ingest(transcription: result.bestTranscription.formattedString)
             }
             if let error {
                 self.handleRecognitionError(error)
@@ -153,16 +154,23 @@ final class SpeechRateMonitor {
         }
     }
 
-    /// Speech results resend the whole hypothesis each time, so we only
-    /// count segments we haven't already counted. Timestamp is receipt time
-    /// (not the in-audio timestamp) — close enough for a rolling rate.
-    private func ingest(segments: [SFTranscriptionSegment]) {
+    /// Speech results resend the whole hypothesis each time, so we only count
+    /// new words past what we've already counted. We count words in the
+    /// formatted transcript rather than `segments` — on-device recognition
+    /// frequently leaves `segments` empty on partial (non-final) results, which
+    /// silently pinned WPM at 0 even though real transcription was happening.
+    /// Timestamp is receipt time (not the in-audio timestamp) — close enough
+    /// for a rolling rate.
+    private func ingest(transcription: String) {
         let now = Date().timeIntervalSinceReferenceDate
+        let wordCount = transcription
+            .split(whereSeparator: { $0 == " " || $0.isNewline })
+            .count
         stateQueue.async { [weak self] in
-            guard let self, segments.count > self.lastSegmentCount else { return }
-            let newCount = segments.count - self.lastSegmentCount
+            guard let self, wordCount > self.lastWordCount else { return }
+            let newCount = wordCount - self.lastWordCount
             self.wordTimestamps.append(contentsOf: Array(repeating: now, count: newCount))
-            self.lastSegmentCount = segments.count
+            self.lastWordCount = wordCount
             DispatchQueue.main.async {
                 self.consecutiveFailures = 0
                 self.onStatus?(nil)
@@ -218,16 +226,16 @@ final class SpeechRateMonitor {
 
             DispatchQueue.main.async {
                 guard elapsedSinceStart >= self.warmupSeconds else {
-                    self.onRateUpdate?(nil)
+                    self.onRateUpdate?(nil, count)
                     return
                 }
                 let effectiveWindow = Swift.min(self.windowSeconds, elapsedSinceStart)
                 guard effectiveWindow > 0 else {
-                    self.onRateUpdate?(nil)
+                    self.onRateUpdate?(nil, count)
                     return
                 }
                 let wpm = Double(count) / (effectiveWindow / 60.0)
-                self.onRateUpdate?(wpm)
+                self.onRateUpdate?(wpm, count)
             }
         }
     }

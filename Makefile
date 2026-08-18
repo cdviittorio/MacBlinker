@@ -6,6 +6,7 @@ SOURCES  = $(SRC_DIR)/main.swift \
            $(SRC_DIR)/BlinkerRenderer.swift \
            $(SRC_DIR)/StatusBarController.swift \
            $(SRC_DIR)/FloatingOverlayController.swift \
+           $(SRC_DIR)/CoachingHUDController.swift \
            $(SRC_DIR)/SpeechRateMonitor.swift \
            $(SRC_DIR)/PreferencesWindowController.swift
 

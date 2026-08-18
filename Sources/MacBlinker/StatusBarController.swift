@@ -18,6 +18,7 @@ class StatusBarController {
 
     // MARK: Coaching Mode state
     private let speechMonitor = SpeechRateMonitor()
+    private let coachingHUD = CoachingHUDController()
     private var coachingColorOverride: NSColor?
     private var coachingBlinkTimer: Timer?
     private var currentBand: WPMBand?
@@ -284,13 +285,14 @@ class StatusBarController {
             currentBand = nil
             lastKnownWPM = nil
             coachingDiagnostic = nil
-            speechMonitor.onRateUpdate = { [weak self] wpm in
-                self?.applyCoaching(wpm: wpm)
+            speechMonitor.onRateUpdate = { [weak self] wpm, words in
+                self?.applyCoaching(wpm: wpm, words: words)
             }
             speechMonitor.onStatus = { [weak self] message in
                 self?.coachingDiagnostic = message
             }
             speechMonitor.start()
+            coachingHUD.show()
         } else {
             guard speechMonitor.isRunning else { return }
             speechMonitor.stop()
@@ -300,12 +302,14 @@ class StatusBarController {
             currentBand = nil
             lastKnownWPM = nil
             coachingDiagnostic = nil
+            coachingHUD.hide()
         }
     }
 
     /// Driven by SpeechRateMonitor roughly every 0.5s while Coaching Mode is on.
-    private func applyCoaching(wpm: Double?) {
+    private func applyCoaching(wpm: Double?, words: Int) {
         lastKnownWPM = wpm
+        defer { coachingHUD.update(words: words, wpm: wpm, color: coachingColorOverride ?? .systemGray) }
         if let diagnostic = coachingDiagnostic {
             statusItem.button?.toolTip = "Coaching Mode — \(diagnostic)"
         } else {
